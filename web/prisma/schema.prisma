@@ -1,0 +1,157 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  IN_TRANSIT
+  DELIVERED
+  CANCELLED
+}
+
+enum ShipmentMode {
+  AIR
+  SEA
+  RAIL
+  ROAD
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  role         String   @default("operator")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  orders       Order[]  @relation("OrderOwner")
+}
+
+model Order {
+  id             String        @id @default(cuid())
+  orderNumber    String        @unique
+  customerRef    String?
+  pickupDate     DateTime?
+  deliveryDate   DateTime?
+  amount         Decimal?      @db.Decimal(12, 2)
+  status         OrderStatus   @default(PENDING)
+  priority       Int           @default(0)
+  ownerId        String?
+  owner          User?         @relation("OrderOwner", fields: [ownerId], references: [id])
+  shipments      OrderShipment[]
+  customFields   CustomField[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+}
+
+model Shipment {
+  id               String             @id @default(cuid())
+  shipmentNumber   String             @unique
+  origin           String
+  destination      String
+  carrierId        String?
+  carrier          Carrier?           @relation(fields: [carrierId], references: [id])
+  mode             ShipmentMode
+  trackingNumber   String?
+  weightKg         Decimal?           @db.Decimal(12, 2)
+  currentLatitude  Decimal?           @db.Decimal(10, 6)
+  currentLongitude Decimal?           @db.Decimal(10, 6)
+  milestones       ShipmentMilestone[]
+  orders           OrderShipment[]
+  customFields     CustomField[]
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+}
+
+model ShipmentMilestone {
+  id          String    @id @default(cuid())
+  shipmentId  String
+  name        String
+  status      String
+  occurredAt  DateTime
+  description String?
+  shipment    Shipment  @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+}
+
+model Carrier {
+  id                 String    @id @default(cuid())
+  name               String    @unique
+  modes              String[]  @default([])
+  apiCredentials     Json?
+  rateCards          Json?
+  performanceMetrics Json?
+  shipments          Shipment[]
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+}
+
+model Inventory {
+  id            String   @id @default(cuid())
+  sku           String   @unique
+  warehouse     String
+  quantity      Int      @default(0)
+  cost          Decimal? @db.Decimal(12, 2)
+  reorderPoint  Int      @default(0)
+  customFields  CustomField[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model OrderShipment {
+  id          String   @id @default(cuid())
+  orderId     String
+  shipmentId  String
+  assignedAt  DateTime @default(now())
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  shipment    Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  @@unique([orderId, shipmentId])
+}
+
+model CustomFieldDefinition {
+  id            String   @id @default(cuid())
+  entityType    String
+  key           String
+  label         String
+  valueType     String   @default("string")
+  isRequired    Boolean  @default(false)
+  allowedValues String[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  customFields  CustomField[]
+
+  @@unique([entityType, key])
+}
+
+model CustomField {
+  id           String                 @id @default(cuid())
+  entityType   String
+  entityId     String
+  key          String
+  value        Json
+  definitionId String?
+  definition   CustomFieldDefinition? @relation(fields: [definitionId], references: [id], onDelete: SetNull)
+  orderId      String?
+  order        Order?                 @relation(fields: [orderId], references: [id])
+  shipmentId   String?
+  shipment     Shipment?              @relation(fields: [shipmentId], references: [id])
+  inventoryId  String?
+  inventory    Inventory?             @relation(fields: [inventoryId], references: [id])
+  createdAt    DateTime               @default(now())
+
+  @@index([entityType, entityId, key])
+  @@unique([entityType, entityId, key])
+}
